@@ -36,14 +36,9 @@ func main() {
 	// Set application flags
 	app.Flags = []cli.Flag{
 		&cli.StringFlag{
-			Name:    "watchtower-socket-path",
-			Aliases: []string{"w"},
+			Name:    "socket-path",
+			Aliases: []string{"s"},
 			Usage:   "The path of the Unix socket to host the Watchtower's relayer on (required)",
-		},
-		&cli.StringFlag{
-			Name:    "cli-socket-path",
-			Aliases: []string{"c"},
-			Usage:   "The path of the Unix socket to host the CLI's relayer on (optional)",
 		},
 		&cli.StringFlag{
 			Name:    "rewards-files-path",
@@ -53,36 +48,21 @@ func main() {
 	}
 
 	app.Action = func(c *cli.Context) error {
-		watchtowerSocketPath := c.String("watchtower-socket-path")
-		if watchtowerSocketPath == "" {
+		socketPath := c.String("socket-path")
+		if socketPath == "" {
 			return fmt.Errorf("socket path is required to run")
 		}
 		rewardsFilesPath := c.String("rewards-files-path")
 		if rewardsFilesPath == "" {
 			return fmt.Errorf("rewards files path is required to run")
 		}
-		cliSocketPath := c.String("cli-socket-path")
 
 		// Wait group to handle the relayers
 		wg := new(sync.WaitGroup)
 		wg.Add(1)
 
-		// Start the CLI relayer
-		var cliRelayer *relayManager
-		if cliSocketPath != "" {
-			if cliSocketPath == watchtowerSocketPath {
-				return fmt.Errorf("cli socket path cannot be the same as the watchtower socket path")
-			}
-			cliRelayer = newRelayManager(cliSocketPath, rewardsFilesPath)
-			wg.Add(1)
-			err := cliRelayer.start(wg)
-			if err != nil {
-				return fmt.Errorf("error starting CLI relayer: %w", err)
-			}
-		}
-
 		// Start the watchtower relayer
-		watchtowerRelayer := newRelayManager(watchtowerSocketPath, rewardsFilesPath)
+		watchtowerRelayer := newRelayManager(socketPath, rewardsFilesPath)
 		err := watchtowerRelayer.start(wg)
 		if err != nil {
 			return fmt.Errorf("error starting watchtower relayer: %w", err)
@@ -93,15 +73,18 @@ func main() {
 		signal.Notify(termListener, os.Interrupt, syscall.SIGTERM)
 		go func() {
 			<-termListener
-			watchtowerRelayer.stop()
-			if cliRelayer != nil {
-				cliRelayer.stop()
+			fmt.Println("Shutting down relayer...")
+			err := watchtowerRelayer.stop()
+			if err != nil {
+				fmt.Printf("WARNING: relayer didn't shutdown cleanly: %s\n", err.Error())
+				wg.Done()
 			}
-			os.Exit(0)
 		}()
 
 		// Run the relayers until closed
+		fmt.Printf("Started relayer on %s.\n", watchtowerRelayer.socketPath)
 		wg.Wait()
+		fmt.Println("Relayer stopped.")
 		return nil
 	}
 

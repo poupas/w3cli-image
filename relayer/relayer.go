@@ -2,9 +2,9 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"net"
 	"net/http"
 	"sync"
@@ -37,30 +37,31 @@ func newRelayManager(socketPath string, rewardsFilesPath string) *relayManager {
 	}
 
 	// Register the routes
-	router.HandleFunc("/w3cli/whoami", func(w http.ResponseWriter, r *http.Request) {
+	w3cliRouter := router.Host("w3cli").Subrouter()
+	w3cliRouter.HandleFunc("/whoami", func(w http.ResponseWriter, r *http.Request) {
 		response, isJson, err := whoami()
-		handleResponse(w, response, isJson, err)
-	})
-	router.HandleFunc("/w3cli/login", func(w http.ResponseWriter, r *http.Request) {
+		handleResponse(r, w, response, isJson, err)
+	}).Methods(http.MethodGet)
+	w3cliRouter.HandleFunc("/login", func(w http.ResponseWriter, r *http.Request) {
 		response, isJson, inputError, err := login(r.URL.Query())
 		if inputError {
-			handleInputError(w, err)
+			handleInputError(r, w, err)
 			return
 		}
-		handleResponse(w, response, isJson, err)
-	})
-	router.HandleFunc("/w3cli/space-create", func(w http.ResponseWriter, r *http.Request) {
+		handleResponse(r, w, response, isJson, err)
+	}).Methods(http.MethodGet)
+	w3cliRouter.HandleFunc("/space-create", func(w http.ResponseWriter, r *http.Request) {
 		response, isJson, err := spaceCreate()
-		handleResponse(w, response, isJson, err)
-	})
-	router.HandleFunc("/w3cli/up", func(w http.ResponseWriter, r *http.Request) {
+		handleResponse(r, w, response, isJson, err)
+	}).Methods(http.MethodGet)
+	w3cliRouter.HandleFunc("/up", func(w http.ResponseWriter, r *http.Request) {
 		response, isJson, inputError, err := up(r.URL.Query(), mgr.rewardsFilesPath)
 		if inputError {
-			handleInputError(w, err)
+			handleInputError(r, w, err)
 			return
 		}
-		handleResponse(w, response, isJson, err)
-	})
+		handleResponse(r, w, response, isJson, err)
+	}).Methods(http.MethodGet)
 
 	return mgr
 }
@@ -78,7 +79,7 @@ func (m *relayManager) start(wg *sync.WaitGroup) error {
 	go func() {
 		err := m.server.Serve(socket)
 		if !errors.Is(err, http.ErrServerClosed) {
-			fmt.Printf("error while listening for HTTP requests: %s\n", err.Error())
+			fmt.Printf("Error while listening for HTTP requests: %s\n", err.Error())
 		}
 		wg.Done()
 	}()
@@ -96,42 +97,51 @@ func (m *relayManager) stop() error {
 }
 
 // Handles a response to a request
-func handleResponse(w http.ResponseWriter, response string, isJson bool, err error) {
+func handleResponse(r *http.Request, w http.ResponseWriter, response string, isJson bool, err error) {
 	// Write out any errors
 	if err != nil {
+		// Log the error
+		logLine("Error handling '%s': %s'", r.URL.String(), err.Error())
+
+		// Write the request
 		w.Header().Add("Content-Type", "text/plain")
 		w.WriteHeader(http.StatusInternalServerError)
 		w.Write([]byte(err.Error()))
 		return
 	}
 
+	// Get the content type
 	var contentType string
-	var bytes []byte
+	bytes := []byte(response)
 	if isJson {
-		bytes, err = json.Marshal(response)
 		contentType = "application/json"
 	} else {
-		bytes = []byte(response)
 		contentType = "text/plain"
 	}
-	// Write the serialized response
-	if err != nil {
-		err = fmt.Errorf("error serializing response: %w", err)
-		w.Header().Add("Content-Type", "text/plain")
-		w.WriteHeader(http.StatusInternalServerError)
-		w.Write([]byte(err.Error()))
-	} else {
-		w.Header().Add("Content-Type", contentType)
-		w.WriteHeader(http.StatusOK)
-		w.Write(bytes)
-	}
+
+	// Log the request
+	logLine("Handled '%s'", r.URL.String())
+
+	// Write the response
+	w.Header().Add("Content-Type", contentType)
+	w.WriteHeader(http.StatusOK)
+	w.Write(bytes)
 }
 
 // Handles an error related to parsing the input parameters of a request
-func handleInputError(w http.ResponseWriter, err error) {
+func handleInputError(r *http.Request, w http.ResponseWriter, err error) {
 	if err != nil {
+		// Log the error
+		logLine("Invalid input from '%s': %s'", r.URL.String(), err.Error())
+
+		// Write the response
 		w.Header().Add("Content-Type", "text/plain")
 		w.WriteHeader(http.StatusBadRequest)
 		w.Write([]byte(err.Error()))
 	}
+}
+
+// Log a line to the local console
+func logLine(line string, args ...any) {
+	log.Println(fmt.Sprintf(line, args...))
 }

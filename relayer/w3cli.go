@@ -49,6 +49,10 @@ func runW3CliCommand(args ...string) (string, error) {
 	cmd := exec.Command("w3", args...)
 	stdout, err := cmd.Output()
 	if err != nil {
+		exitError, isExitError := err.(*exec.ExitError)
+		if isExitError {
+			return "", fmt.Errorf("w3 exited with status code %d:\n%s", exitError.ExitCode(), string(exitError.Stderr))
+		}
 		return "", err
 	}
 	return string(stdout), nil
