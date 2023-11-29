@@ -56,7 +56,7 @@ mkdir /tmp/w3cli_socket && sudo chmod 777 /tmp/w3cli_socket
 docker run --rm -it --entrypoint w3cli_relayer -v w3cli_cfg:/w3state/.config -v /home/user/.rocketpool/data/rewards-trees:/rewards-trees -v /tmp/w3cli_socket:/socket rocketpool/w3cli -s /socket/w3cli_relayer.sock -r /rewards-trees
 ```
 
-Note that whatever folder you use as the socket volume will either need `0777` permissions (so the relayer can create the socket) or be `chown`'d to the `w3s` user's CID / GID (`65530` by default).
+Note that whatever folder you use as the socket volume will either need `0777` permissions (so the relayer can create the socket) or be `chown`'d to the `w3s` user's UID / GID (`65530` by default).
 
 Once running, you can test the connection with a simple cURL command:
 
